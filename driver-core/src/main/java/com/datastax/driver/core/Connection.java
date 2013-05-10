@@ -26,7 +26,6 @@ import java.util.concurrent.atomic.AtomicInteger;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.util.concurrent.Uninterruptibles;
 
-import com.datastax.driver.core.exceptions.AuthenticationException;
 import com.datastax.driver.core.exceptions.DriverInternalError;
 
 import org.apache.cassandra.service.ClientState;
@@ -150,17 +149,9 @@ class Connection extends org.apache.cassandra.transport.Connection
                 case ERROR:
                     throw defunct(new TransportException(address, String.format("Error initializing connection: %s", ((ErrorMessage)response).error.getMessage())));
                 case AUTHENTICATE:
-                    CredentialsMessage creds = new CredentialsMessage();
-                    creds.credentials.putAll(factory.authProvider.getAuthInfo(address));
-                    Message.Response authResponse = write(creds).get();
-                    switch (authResponse.type) {
-                        case READY:
-                            break;
-                        case ERROR:
-                            throw new AuthenticationException(address, (((ErrorMessage)authResponse).error).getMessage());
-                        default:
-                            throw defunct(new TransportException(address, String.format("Unexpected %s response message from server to a CREDENTIALS message", authResponse.type)));
-                    }
+                    AuthenticateMessage message = (AuthenticateMessage)response;
+                    Authenticator authenticator = factory.authProvider.newAuthenticator(address);
+                    authenticator.handleAuthenticationRequest(message, this);
                     break;
                 default:
                     throw defunct(new TransportException(address, String.format("Unexpected %s response message from server to a STARTUP message", response.type)));
@@ -346,14 +337,14 @@ class Connection extends org.apache.cassandra.transport.Connection
         public final DefaultResponseHandler defaultHandler;
         public final Configuration configuration;
 
-        public final AuthInfoProvider authProvider;
+        public final AuthProvider authProvider;
         private volatile boolean isShutdown;
 
-        public Factory(Cluster.Manager manager, AuthInfoProvider authProvider) {
+        public Factory(Cluster.Manager manager, AuthProvider authProvider) {
             this(manager, manager.configuration, authProvider);
         }
 
-        private Factory(DefaultResponseHandler defaultHandler, Configuration configuration, AuthInfoProvider authProvider) {
+        private Factory(DefaultResponseHandler defaultHandler, Configuration configuration, AuthProvider authProvider) {
             this.defaultHandler = defaultHandler;
             this.configuration = configuration;
             this.authProvider = authProvider;
@@ -429,8 +420,8 @@ class Connection extends org.apache.cassandra.transport.Connection
             channelFactory.releaseExternalResources();
 
             return future.await(timeout, unit)
-                && bossExecutor.awaitTermination(timeout - Cluster.timeSince(start, unit), unit)
-                && workerExecutor.awaitTermination(timeout - Cluster.timeSince(start, unit), unit);
+                    && bossExecutor.awaitTermination(timeout - Cluster.timeSince(start, unit), unit)
+                    && workerExecutor.awaitTermination(timeout - Cluster.timeSince(start, unit), unit);
         }
     }
 
@@ -455,7 +446,7 @@ class Connection extends org.apache.cassandra.transport.Connection
                 logger.error("[{}] Received unexpected message: {}", name, e.getMessage());
                 defunct(new TransportException(address, "Unexpected message received: " + e.getMessage()));
             } else {
-                Message.Response response = (Message.Response)e.getMessage();
+                Message.Response response = (Message.Response) e.getMessage();
                 int streamId = response.getStreamId();
 
                 logger.trace("[{}] received: {}", name, e.getMessage());
@@ -500,8 +491,7 @@ class Connection extends org.apache.cassandra.transport.Connection
         }
 
         @Override
-        public void channelClosed(ChannelHandlerContext ctx, ChannelStateEvent e)
-        {
+        public void channelClosed(ChannelHandlerContext ctx, ChannelStateEvent e) {
             // If we've closed the channel server side then we don't really want to defunct the connection, but
             // if there is remaining thread waiting on us, we still want to wake them up
             if (isClosed)
@@ -516,7 +506,8 @@ class Connection extends org.apache.cassandra.transport.Connection
         private final Message.Request request;
         private volatile InetAddress address;
 
-        public Future(Message.Request request) {
+        public Future(Message.Request request)
+        {
             this.request = request;
         }
 
@@ -548,7 +539,9 @@ class Connection extends org.apache.cassandra.transport.Connection
 
     interface ResponseCallback {
         public Message.Request request();
+
         public void onSet(Connection connection, Message.Response response);
+
         public void onException(Connection connection, Exception exception);
     }
 
@@ -567,7 +560,8 @@ class Connection extends org.apache.cassandra.transport.Connection
         public void handle(Message.Response response);
     }
 
-    private static class PipelineFactory implements ChannelPipelineFactory {
+    private static class PipelineFactory implements ChannelPipelineFactory
+    {
         // Stateless handlers
         private static final Message.ProtocolDecoder messageDecoder = new Message.ProtocolDecoder();
         private static final Message.ProtocolEncoder messageEncoder = new Message.ProtocolEncoder();
@@ -577,6 +571,7 @@ class Connection extends org.apache.cassandra.transport.Connection
 
         // One more fallout of using server side classes; not a big deal
         private static final org.apache.cassandra.transport.Connection.Tracker tracker;
+
         static {
             tracker = new org.apache.cassandra.transport.Connection.Tracker() {
                 @Override
@@ -590,7 +585,7 @@ class Connection extends org.apache.cassandra.transport.Connection
         private final Connection connection;
         private final org.apache.cassandra.transport.Connection.Factory cfactory;
 
-        public PipelineFactory(final Connection connection) {
+        public PipelineFactory(final Connection connection){
             this.connection = connection;
             this.cfactory = new org.apache.cassandra.transport.Connection.Factory() {
                 @Override

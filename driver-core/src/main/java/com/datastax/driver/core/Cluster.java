@@ -246,7 +246,7 @@ public class Cluster {
 
         private final List<InetAddress> addresses = new ArrayList<InetAddress>();
         private int port = ProtocolOptions.DEFAULT_PORT;
-        private AuthInfoProvider authProvider = AuthInfoProvider.NONE;
+        private AuthProvider authProvider = AuthProvider.NONE;
 
         private LoadBalancingPolicy loadBalancingPolicy;
         private ReconnectionPolicy reconnectionPolicy;
@@ -398,7 +398,10 @@ public class Cluster {
          * @return this Builder
          */
         public Builder withCredentials(String username, String password) {
-            this.authProvider = new AuthInfoProvider.Simple(username, password);
+            Map<String,String> credentials = new HashMap<String, String>();
+            credentials.put("username", username);
+            credentials.put("password", password);
+            this.authProvider = new SimpleAuthProvider(credentials);
             return this;
         }
 
@@ -555,7 +558,7 @@ public class Cluster {
             this.configuration = configuration;
             this.metadata = new Metadata(this);
             this.contactPoints = contactPoints;
-            this.connectionFactory = new Connection.Factory(this, configuration.getAuthInfoProvider());
+            this.connectionFactory = new Connection.Factory(this, configuration.getAuthProvider());
 
             this.controlConnection = new ControlConnection(this);
 
