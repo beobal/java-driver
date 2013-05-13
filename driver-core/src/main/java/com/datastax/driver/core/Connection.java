@@ -24,6 +24,7 @@ import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import com.google.common.collect.ImmutableMap;
+import com.datastax.driver.core.exceptions.AuthenticationException;
 import com.google.common.util.concurrent.Uninterruptibles;
 
 import com.datastax.driver.core.exceptions.DriverInternalError;
@@ -149,9 +150,10 @@ class Connection extends org.apache.cassandra.transport.Connection
                 case ERROR:
                     throw defunct(new TransportException(address, String.format("Error initializing connection: %s", ((ErrorMessage)response).error.getMessage())));
                 case AUTHENTICATE:
-                    AuthenticateMessage message = (AuthenticateMessage)response;
                     Authenticator authenticator = factory.authProvider.newAuthenticator(address);
-                    authenticator.handleAuthenticationRequest(message, this);
+                    byte[] initialResponse = authenticator.initialResponse();
+                    Message.Response authResponse = write(new SaslResponse(initialResponse)).get();
+                    waitForSaslCompletion(authResponse, authenticator);
                     break;
                 default:
                     throw defunct(new TransportException(address, String.format("Unexpected %s response message from server to a STARTUP message", response.type)));
@@ -160,6 +162,37 @@ class Connection extends org.apache.cassandra.transport.Connection
             throw new DriverInternalError("Newly created connection should not be busy");
         } catch (ExecutionException e) {
             throw defunct(new ConnectionException(address, "Unexpected error during transport initialization", e.getCause()));
+        }
+    }
+
+    private void waitForSaslCompletion(Message.Response authResponse, Authenticator authenticator)
+    throws ConnectionException, BusyConnectionException, ExecutionException, InterruptedException
+    {
+        switch (authResponse.type)
+        {
+            case READY:
+                logger.debug("Server has sent us a Ready message, authentication should be complete.");
+                break;
+            case SASL_CHALLENGE:
+                byte[] responseToServer = authenticator.evaluateChallenge(((SaslChallenge) authResponse).getToken());
+                if (responseToServer == null)
+                {
+                    // If we generate a null response, then authentication has completed,return without
+                    // sending a further response back to the server.
+                    logger.trace("Response to server is null: authentication should now be complete.");
+                    return;
+                } else {
+                    // Otherwise, send the challenge response back to the server
+                    logger.trace("Sending token response back to server");
+                    waitForSaslCompletion(write(new SaslResponse(responseToServer)).get(), authenticator);
+                }
+                break;
+            case ERROR:
+                throw new AuthenticationException(address, (((ErrorMessage) authResponse).error).getMessage());
+            default:
+                throw new TransportException(address,
+                        String.format("Unexpected %s response message from server to authentication message",
+                                authResponse.type));
         }
     }
 

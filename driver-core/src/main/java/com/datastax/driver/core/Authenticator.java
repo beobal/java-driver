@@ -17,12 +17,8 @@
  */
 package com.datastax.driver.core;
 
-import org.apache.cassandra.transport.messages.AuthenticateMessage;
-
-import java.util.concurrent.ExecutionException;
-
 /**
- * Handles authentication with Cassandra servers.
+ * Handles SASL authentication with Cassandra servers.
  *
  * A server which requires authentication responds to a startup
  * message with an challenge in the form of an {@code AuthenticateMessage}.
@@ -32,18 +28,20 @@ import java.util.concurrent.ExecutionException;
  * configuration of the server.
  */
 public interface Authenticator {
+
     /**
-     * Respond to an authentication challenge sent by the server. How this
-     * is handled depends on the particular authentication scheme employed
-     * by the server.
-     *
-     * @param message the authentication challenge received from the server
-     * @param connection used to send response message(s) to the server
-     * @throws ConnectionException
-     * @throws BusyConnectionException
-     * @throws ExecutionException
-     * @throws InterruptedException
+     * Obtain an initial response token for initializing the SASL handshake
+     * @return the initial response to send to the server, may be null
      */
-    public void handleAuthenticationRequest(AuthenticateMessage message, Connection connection)
-            throws ConnectionException, BusyConnectionException, ExecutionException, InterruptedException;
+    public byte[] initialResponse();
+
+    /**
+     * Evaluate a challenge received from the Server. Generally, this method
+     * should return null when authentication is complete from the client
+     * perspective
+     * @param challenge the server's SASL challenge
+     * @return updated SASL token, may be null to indicate the client
+     * requires no further action
+     */
+    public byte[] evaluateChallenge(byte[] challenge);
 }
