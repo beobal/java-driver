@@ -398,10 +398,25 @@ public class Cluster {
          * @return this Builder
          */
         public Builder withCredentials(String username, String password) {
-            Map<String,String> credentials = new HashMap<String, String>();
-            credentials.put("username", username);
-            credentials.put("password", password);
-            this.authProvider = new SimpleAuthProvider(credentials);
+            this.authProvider = new PlainTextAuthProvider(username, password);
+            return this;
+        }
+
+        /**
+         * Use the specified AuthProvider when connecting to Cassandra
+         * hosts.
+         * <p>
+         * Use this method when a custom authentication scheme is in place.
+         * You shouldn't call both this method and {@code withCredentials}
+         * on the same {@code Builder} instance as one will supercede the
+         * other
+         *
+         * @param authProvider the {@link AuthProvider} to use to login to
+         *                     Cassandra hosts.
+         * @return this Builder
+         */
+        public Builder withAuthProvider(AuthProvider authProvider) {
+            this.authProvider = authProvider;
             return this;
         }
 

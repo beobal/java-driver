@@ -23,7 +23,7 @@ import java.net.InetAddress;
  * Provides {@link Authenticator} instances for use when connecting
  * to Cassandra nodes.
  *
- * See {@link SimpleAuthProvider} and {@link SimpleAuthenticator}
+ * See {@link PlainTextAuthProvider} and {@link SimpleAuthenticator}
  * for an implementation which uses SASL PLAIN mechanism to
  * authenticate using username/password strings
  */
@@ -34,10 +34,8 @@ public interface AuthProvider {
      * <p>
      * This is only useful as a placeholder when no authentication is to be used.
      */
-    public static final AuthProvider NONE = new AuthProvider()
-    {
-        public Authenticator newAuthenticator(InetAddress host)
-        {
+    public static final AuthProvider NONE = new AuthProvider() {
+        public Authenticator newAuthenticator(InetAddress host) {
             throw new AuthenticationException(host,
                 String.format("Host %s requires authentication, but no authenticator found in Cluster configuration", host));
         }

@@ -42,7 +42,7 @@ public class AuthenticationTest {
      * creates a cluster and turns on password authentication before starting it.
      */
     @BeforeClass (groups = "short")
-    public void setupClusterWithAuthentication() throws InterruptedException{
+    public void setupClusterWithAuthentication() throws InterruptedException {
         cassandraCluster = CCMBridge.create("test");
         cassandraCluster.populate(1);
         cassandraCluster.updateConfig("authenticator", PasswordAuthenticator.class.getName());
@@ -61,7 +61,7 @@ public class AuthenticationTest {
 
     @Test(groups = "short")
     public void testAuthenticatedConnection() throws InterruptedException {
-        try{
+        try {
             Cluster.builder().addContactPoint(CCMBridge.IP_PREFIX + "1")
                                                 .withCredentials("cassandra", "cassandra")
                                                 .build()

@@ -52,7 +52,7 @@ public class Configuration {
 
     /**
      * Creates a configuration with the specified parameters.
-     *
+     * 
      * @param policies the policies to use
      * @param protocolOptions the protocol options to use
      * @param poolingOptions the pooling options to use
@@ -61,16 +61,6 @@ public class Configuration {
      * @param metricsOptions the metrics options, or null to disable metrics.
      */
     public Configuration(Policies policies,
-                         ProtocolOptions protocolOptions,
-                         PoolingOptions poolingOptions,
-                         SocketOptions socketOptions,
-                         MetricsOptions metricsOptions) {
-        this(policies, protocolOptions, poolingOptions, socketOptions, AuthProvider.NONE, metricsOptions);
-    }
-
-    // TODO: ultimately we should expose this, but we don't want to expose the AuthProvider yet as it
-    // will change soon
-    Configuration(Policies policies,
                          ProtocolOptions protocolOptions,
                          PoolingOptions poolingOptions,
                          SocketOptions socketOptions,
@@ -142,8 +132,7 @@ public class Configuration {
      *
      * @return the authentication provider in use.
      */
-    // Not exposed yet on purpose
-    AuthProvider getAuthProvider() {
+    public AuthProvider getAuthProvider() {
         return authProvider;
     }
 }
