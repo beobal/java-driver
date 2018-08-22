@@ -23,6 +23,7 @@ import org.xerial.snappy.Snappy;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.util.EnumSet;
 
 class SnappyCompressor extends FrameCompressor {
 
@@ -42,6 +43,14 @@ class SnappyCompressor extends FrameCompressor {
             logger.warn("Error loading Snappy library ({}). Snappy compression will not be available for the protocol.", e.toString());
         }
         INSTANCE = i;
+    }
+
+
+    static final EnumSet<Frame.Header.Flag> FLAGS = EnumSet.of(Frame.Header.Flag.COMPRESSED);
+
+    EnumSet<Frame.Header.Flag> getHeaderFlags()
+    {
+        return FLAGS;
     }
 
     private SnappyCompressor() {

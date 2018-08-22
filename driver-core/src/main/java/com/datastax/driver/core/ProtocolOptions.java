@@ -17,6 +17,7 @@ package com.datastax.driver.core;
 
 import com.google.common.annotations.VisibleForTesting;
 
+
 /**
  * Options of the Cassandra native binary protocol.
  */
@@ -31,8 +32,8 @@ public class ProtocolOptions {
          */
         NONE("") {
             @Override
-            FrameCompressor compressor(ProtocolVersion version) {
-                return null;
+            FrameCompressor compressor(ProtocolVersion version, Checksum checksum) {
+                return checksum == Checksum.NONE ? null : ChecksumCompressor.INSTANCE;
             }
         },
         /**
@@ -40,8 +41,8 @@ public class ProtocolOptions {
          */
         SNAPPY("snappy") {
             @Override
-            FrameCompressor compressor(ProtocolVersion version) {
-                if (version.supportsChecksums())
+            FrameCompressor compressor(ProtocolVersion version, Checksum checksum) {
+                if (checksum != Checksum.NONE)
                     throw new IllegalStateException("Snappy compression is no longer supported. " +
                             "Please switch to the LZ4 compressor or another " +
                             "supported compression implementation.");
@@ -53,8 +54,8 @@ public class ProtocolOptions {
          */
         LZ4("lz4") {
             @Override
-            FrameCompressor compressor(ProtocolVersion version) {
-                return version.supportsChecksums()
+            FrameCompressor compressor(ProtocolVersion version, Checksum checksum) {
+                return checksum == Checksum.CRC32
                         ? LZ4ChecksumCompressor.INSTANCE
                         : LZ4Compressor.INSTANCE;
             }
@@ -66,7 +67,7 @@ public class ProtocolOptions {
             this.protocolName = protocolName;
         }
 
-        abstract FrameCompressor compressor(ProtocolVersion version);
+        abstract FrameCompressor compressor(ProtocolVersion version, Checksum checksum);
 
         static Compression fromString(String str) {
             for (Compression c : values()) {
@@ -82,6 +83,24 @@ public class ProtocolOptions {
         }
     }
 
+    public enum Checksum {
+
+        NONE("")
+        {
+        },
+
+        CRC32("CRC32") {
+        };
+
+//        ADLER32("ADLER32") {
+//        };
+
+        final String protocolName;
+
+        private Checksum(String protocolName) {
+            this.protocolName = protocolName;
+        }
+    }
     /**
      * The default port for Cassandra native binary protocol: 9042.
      */
@@ -104,6 +123,7 @@ public class ProtocolOptions {
     private final AuthProvider authProvider;
 
     private volatile Compression compression = Compression.NONE;
+    private volatile Checksum checksum = Checksum.NONE;
 
     /**
      * Creates a new {@code ProtocolOptions} instance using the {@code DEFAULT_PORT}
@@ -198,10 +218,21 @@ public class ProtocolOptions {
      *                               unavailable.
      */
     public ProtocolOptions setCompression(Compression compression) {
-        if (compression != Compression.NONE && compression.compressor(ProtocolVersion.NEWEST_SUPPORTED) == null)
-            throw new IllegalStateException("The requested compression is not available (some compression require a JAR to be found in the classpath)");
+//        if (compression != Compression.NONE && compression.compressor(ProtocolVersion.NEWEST_SUPPORTED) == null)
+//            throw new IllegalStateException("The requested compression is not available (some compression require a JAR to be found in the classpath)");
 
         this.compression = compression;
+        return this;
+    }
+
+    public Checksum getChecksum()
+    {
+        return checksum;
+    }
+
+    public ProtocolOptions setChecksum(Checksum checksum)
+    {
+        this.checksum = checksum;
         return this;
     }
 

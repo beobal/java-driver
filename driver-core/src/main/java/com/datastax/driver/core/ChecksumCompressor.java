@@ -22,6 +22,7 @@ import io.netty.util.concurrent.FastThreadLocal;
 
 import java.io.IOException;
 import java.net.ProtocolException;
+import java.util.EnumSet;
 import java.util.zip.CRC32;
 import java.util.zip.Checksum;
 
@@ -115,6 +116,12 @@ class ChecksumCompressor extends FrameCompressor {
     @Override
     Frame decompress(Frame frame) throws IOException {
         return frame.with(decompress(frame.body));
+    }
+
+    static final EnumSet<Frame.Header.Flag> FLAGS = EnumSet.of(Frame.Header.Flag.CHECKSUMMED);
+    EnumSet<Frame.Header.Flag> getHeaderFlags()
+    {
+        return FLAGS;
     }
 
     /**

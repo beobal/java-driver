@@ -19,12 +19,15 @@ import io.netty.buffer.ByteBuf;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.util.EnumSet;
 
 abstract class FrameCompressor {
 
     abstract Frame compress(Frame frame) throws IOException;
 
     abstract Frame decompress(Frame frame) throws IOException;
+
+    abstract EnumSet<Frame.Header.Flag> getHeaderFlags();
 
     static ByteBuffer inputNioBuffer(ByteBuf buf) {
         // Using internalNioBuffer(...) as we only hold the reference in this method and so can

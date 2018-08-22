@@ -35,6 +35,7 @@ class Requests {
         private static final String CQL_VERSION = "3.0.0";
 
         static final String COMPRESSION_OPTION = "COMPRESSION";
+        static final String CHECKSUMS_OPTION = "CONTENT_CHECKSUM";
 
         static final Message.Coder<Startup> coder = new Message.Coder<Startup>() {
             @Override
@@ -50,21 +51,27 @@ class Requests {
 
         private final Map<String, String> options;
         private final ProtocolOptions.Compression compression;
+        private final ProtocolOptions.Checksum checksum;
 
-        Startup(ProtocolOptions.Compression compression) {
+        Startup(ProtocolOptions.Compression compression, ProtocolOptions.Checksum checksum) {
             super(Message.Request.Type.STARTUP);
             this.compression = compression;
+            this.checksum = checksum;
 
             ImmutableMap.Builder<String, String> map = new ImmutableMap.Builder<String, String>();
             map.put(CQL_VERSION_OPTION, CQL_VERSION);
             if (compression != ProtocolOptions.Compression.NONE)
                 map.put(COMPRESSION_OPTION, compression.toString());
+
+            if (checksum != ProtocolOptions.Checksum.NONE)
+                map.put(CHECKSUMS_OPTION, checksum.toString());
+
             this.options = map.build();
         }
 
         @Override
         protected Request copyInternal() {
-            return new Startup(compression);
+            return new Startup(compression, checksum);
         }
 
         @Override

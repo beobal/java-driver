@@ -15,10 +15,7 @@
  */
 package com.datastax.driver.examples.basic;
 
-import com.datastax.driver.core.Cluster;
-import com.datastax.driver.core.ResultSet;
-import com.datastax.driver.core.Row;
-import com.datastax.driver.core.Session;
+import com.datastax.driver.core.*;
 
 /**
  * Connects to a Cassandra cluster and extracts basic information from it.
@@ -44,8 +41,12 @@ public class ReadCassandraVersion {
             // This class is thread-safe, you should create a single instance (per target Cassandra cluster), and share
             // it throughout your application.
             cluster = Cluster.builder()
-                    .addContactPoints(CONTACT_POINTS).withPort(PORT)
-                    .build();
+                             .addContactPoints(CONTACT_POINTS)
+                             .withPort(PORT)
+//                             .withCompression(ProtocolOptions.Compression.LZ4)
+                             .withChecksums(ProtocolOptions.Checksum.CRC32)
+                             .allowBetaProtocolVersion()
+                             .build();
 
             // The Session is what you use to execute queries. Likewise, it is thread-safe and should be reused.
             Session session = cluster.connect();

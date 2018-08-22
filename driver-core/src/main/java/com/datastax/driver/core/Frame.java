@@ -169,7 +169,8 @@ class Frame {
             TRACING,
             CUSTOM_PAYLOAD,
             WARNING,
-            USE_BETA;
+            USE_BETA,
+            CHECKSUMMED;
 
             static EnumSet<Flag> deserialize(int flags) {
                 EnumSet<Flag> set = EnumSet.noneOf(Flag.class);
@@ -301,11 +302,9 @@ class Frame {
 
         @Override
         protected void decode(ChannelHandlerContext ctx, Frame frame, List<Object> out) throws Exception {
-            if (frame.header.flags.contains(Header.Flag.COMPRESSED)) {
-                assert compressor != null;
+            if (frame.header.flags.contains(Header.Flag.CHECKSUMMED) || frame.header.flags.contains(Header.Flag.COMPRESSED))
+            {
                 out.add(decompressAndRelease(frame, compressor));
-            } else if (frame.header.version.supportsChecksums()) {
-                out.add(decompressAndRelease(frame, ChecksumCompressor.INSTANCE));
             } else {
                 out.add(frame);
             }
@@ -335,29 +334,17 @@ class Frame {
 
         @Override
         protected void encode(ChannelHandlerContext ctx, Frame frame, List<Object> out) throws Exception {
-            boolean supportsChecksums = frame.header.version.supportsChecksums();
             // Never compress STARTUP messages
             if (frame.header.opcode == Message.Request.Type.STARTUP.opcode) {
-                if (supportsChecksums)
-                    out.add(compressAndRelease(frame, ChecksumCompressor.INSTANCE));
-                else
                     out.add(frame);
             } else {
-                if (compressor != null)
-                    frame.header.flags.add(Header.Flag.COMPRESSED);
-                if (supportsChecksums) {
-                    if (compressor != null)
-                        out.add(compressAndRelease(frame, compressor));
-                    else
-                        out.add(compressAndRelease(frame, ChecksumCompressor.INSTANCE));
+                if (compressor == null)  {
+                    out.add(frame);
                 } else {
-                    if (compressor != null)
-                        out.add(compressAndRelease(frame, compressor));
-                    else
-                        out.add(frame);
+                    frame.header.flags.addAll(compressor.getHeaderFlags());
+                    out.add(compressAndRelease(frame, compressor));
                 }
             }
-
         }
 
         private static Frame compressAndRelease(Frame frame, FrameCompressor compressor) throws IOException {

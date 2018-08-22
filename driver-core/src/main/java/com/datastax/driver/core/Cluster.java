@@ -683,6 +683,7 @@ public class Cluster implements Closeable {
         private final Configuration.Builder configurationBuilder = Configuration.builder();
 
         private ProtocolOptions.Compression compression = ProtocolOptions.Compression.NONE;
+        private ProtocolOptions.Checksum checksum = ProtocolOptions.Checksum.NONE;
         private SSLOptions sslOptions = null;
         private boolean metricsEnabled = true;
         private boolean jmxEnabled = true;
@@ -1158,6 +1159,11 @@ public class Cluster implements Closeable {
             return this;
         }
 
+        public Builder withChecksums(ProtocolOptions.Checksum checksum) {
+            this.checksum = checksum;
+            return this;
+        }
+
         /**
          * Disables metrics collection for the created cluster (metrics are
          * enabled by default otherwise).
@@ -1307,7 +1313,7 @@ public class Cluster implements Closeable {
         @Override
         public Configuration getConfiguration() {
             ProtocolOptions protocolOptions = new ProtocolOptions(port, protocolVersion, maxSchemaAgreementWaitSeconds, sslOptions, authProvider)
-                    .setCompression(compression);
+                    .setCompression(compression).setChecksum(checksum);
 
             MetricsOptions metricsOptions = new MetricsOptions(metricsEnabled, jmxEnabled);
 

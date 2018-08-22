@@ -16,6 +16,8 @@
 package com.datastax.driver.core;
 
 
+import java.util.EnumSet;
+
 class LZ4ChecksumCompressor extends ChecksumCompressor {
 
     static final LZ4ChecksumCompressor INSTANCE = new LZ4ChecksumCompressor();
@@ -23,9 +25,16 @@ class LZ4ChecksumCompressor extends ChecksumCompressor {
     final net.jpountz.lz4.LZ4Compressor compressor;
     final net.jpountz.lz4.LZ4FastDecompressor decompressor;
 
-    private LZ4ChecksumCompressor() {
+    LZ4ChecksumCompressor() {
         compressor = LZ4Compressor.INSTANCE.compressor;
         decompressor = LZ4Compressor.INSTANCE.decompressor;
+    }
+
+    static final EnumSet<Frame.Header.Flag> FLAGS = EnumSet.of(Frame.Header.Flag.COMPRESSED, Frame.Header.Flag.CHECKSUMMED);
+
+    EnumSet<Frame.Header.Flag> getHeaderFlags()
+    {
+        return FLAGS;
     }
 
     @Override

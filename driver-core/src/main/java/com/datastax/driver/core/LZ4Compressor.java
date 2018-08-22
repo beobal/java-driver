@@ -22,6 +22,7 @@ import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.util.EnumSet;
 
 class LZ4Compressor extends FrameCompressor {
 
@@ -47,6 +48,13 @@ class LZ4Compressor extends FrameCompressor {
 
     final net.jpountz.lz4.LZ4Compressor compressor;
     final net.jpountz.lz4.LZ4FastDecompressor decompressor;
+
+    static final EnumSet<Frame.Header.Flag> FLAGS = EnumSet.of(Frame.Header.Flag.COMPRESSED);
+
+    EnumSet<Frame.Header.Flag> getHeaderFlags()
+    {
+        return FLAGS;
+    }
 
     private LZ4Compressor() {
         final LZ4Factory lz4Factory = LZ4Factory.fastestInstance();

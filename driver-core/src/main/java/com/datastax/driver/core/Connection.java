@@ -136,7 +136,7 @@ class Connection {
         try {
             Bootstrap bootstrap = factory.newBootstrap();
             ProtocolOptions protocolOptions = factory.configuration.getProtocolOptions();
-            FrameCompressor compressor = protocolOptions.getCompression().compressor(protocolVersion);
+            FrameCompressor compressor = protocolOptions.getCompression().compressor(protocolVersion, protocolOptions.getChecksum());
             bootstrap.handler(
                     new Initializer(this, protocolVersion, compressor, protocolOptions.getSSLOptions(),
                             factory.configuration.getPoolingOptions().getHeartbeatIntervalSeconds(),
@@ -232,7 +232,8 @@ class Connection {
             @Override
             public ListenableFuture<Void> apply(Void input) throws Exception {
                 ProtocolOptions.Compression compression = factory.configuration.getProtocolOptions().getCompression();
-                Future startupResponseFuture = write(new Requests.Startup(compression));
+                ProtocolOptions.Checksum checksum = factory.configuration.getProtocolOptions().getChecksum();
+                Future startupResponseFuture = write(new Requests.Startup(compression, checksum));
                 return GuavaCompatibility.INSTANCE.transformAsync(startupResponseFuture,
                         onStartupResponse(protocolVersion, initExecutor), initExecutor);
             }
