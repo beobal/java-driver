@@ -16,6 +16,7 @@
 package com.datastax.driver.core;
 
 import io.netty.bootstrap.Bootstrap;
+import io.netty.buffer.ByteBufAllocator;
 import io.netty.buffer.PooledByteBufAllocator;
 import io.netty.channel.ChannelOption;
 import io.netty.channel.EventLoopGroup;
@@ -141,7 +142,8 @@ public class NettyOptions {
    */
   public void afterBootstrapInitialized(Bootstrap bootstrap) {
     // In Netty 4.1.x, pooled will be the default, so this won't be necessary anymore
-    bootstrap.option(ChannelOption.ALLOCATOR, PooledByteBufAllocator.DEFAULT);
+    ByteBufAllocator allocator = GlobalBufferPoolAllocator.instance;
+    bootstrap.option(ChannelOption.ALLOCATOR, allocator);
   }
 
   /**

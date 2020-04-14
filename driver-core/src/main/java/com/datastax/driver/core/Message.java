@@ -18,6 +18,7 @@ package com.datastax.driver.core;
 import com.datastax.driver.core.exceptions.DriverInternalError;
 import com.datastax.driver.core.exceptions.UnsupportedFeatureException;
 import io.netty.buffer.ByteBuf;
+import io.netty.buffer.ByteBufAllocator;
 import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.handler.codec.MessageToMessageDecoder;
@@ -269,8 +270,12 @@ abstract class Message {
   static class ProtocolDecoder extends MessageToMessageDecoder<Frame> {
 
     @Override
-    protected void decode(ChannelHandlerContext ctx, Frame frame, List<Object> out)
+    public void decode(ChannelHandlerContext ctx, Frame frame, List<Object> out)
         throws Exception {
+      out.add(decodeMessage(ctx, frame));
+    }
+
+    public Response decodeMessage(ChannelHandlerContext ctx, Frame frame) {
       boolean isTracing = frame.header.flags.contains(Frame.Header.Flag.TRACING);
       boolean isCustomPayload = frame.header.flags.contains(Frame.Header.Flag.CUSTOM_PAYLOAD);
       UUID tracingId = isTracing ? CBUtil.readUUID(frame.body) : null;
@@ -300,7 +305,7 @@ abstract class Message {
             .setWarnings(warnings)
             .setCustomPayload(customPayload)
             .setStreamId(frame.header.streamId);
-        out.add(response);
+        return response;
       } finally {
         frame.body.release();
       }
@@ -319,6 +324,12 @@ abstract class Message {
     @Override
     protected void encode(ChannelHandlerContext ctx, Request request, List<Object> out)
         throws Exception {
+      out.add(encodeMessage(ctx.alloc(), request));
+    }
+
+    Frame encodeMessage(ByteBufAllocator allocator, Request request)
+    {
+
       EnumSet<Frame.Header.Flag> flags = EnumSet.noneOf(Frame.Header.Flag.class);
       if (request.isTracingRequested()) flags.add(Frame.Header.Flag.TRACING);
       if (protocolVersion == ProtocolVersion.NEWEST_BETA) flags.add(Frame.Header.Flag.USE_BETA);
@@ -326,7 +337,7 @@ abstract class Message {
       if (customPayload != null) {
         if (protocolVersion.compareTo(ProtocolVersion.V4) < 0)
           throw new UnsupportedFeatureException(
-              protocolVersion, "Custom payloads are only supported since native protocol V4");
+          protocolVersion, "Custom payloads are only supported since native protocol V4");
         flags.add(Frame.Header.Flag.CUSTOM_PAYLOAD);
       }
 
@@ -338,27 +349,26 @@ abstract class Message {
         payloadLength = CBUtil.sizeOfBytesMap(customPayload);
         messageSize += payloadLength;
       }
-      ByteBuf body = ctx.alloc().buffer(messageSize);
+      ByteBuf body = allocator.buffer(messageSize);
       if (customPayload != null) {
         CBUtil.writeBytesMap(customPayload, body);
         if (logger.isTraceEnabled()) {
           logger.trace(
-              "Sending payload: {} ({} bytes total)", printPayload(customPayload), payloadLength);
+          "Sending payload: {} ({} bytes total)", printPayload(customPayload), payloadLength);
         }
       }
 
       coder.encode(request, body, protocolVersion);
       if (body.capacity() != messageSize) {
         logger.debug(
-            "Detected buffer resizing while encoding {} message ({} => {}), "
-                + "this is a driver bug "
-                + "(ultimately it does not affect the query, but leads to a small inefficiency)",
-            request.type,
-            messageSize,
-            body.capacity());
+        "Detected buffer resizing while encoding {} message ({} => {}), "
+        + "this is a driver bug "
+        + "(ultimately it does not affect the query, but leads to a small inefficiency)",
+        request.type,
+        messageSize,
+        body.capacity());
       }
-      out.add(
-          Frame.create(protocolVersion, request.type.opcode, request.getStreamId(), flags, body));
+      return Frame.create(protocolVersion, request.type.opcode, request.getStreamId(), flags, body);
     }
   }
 

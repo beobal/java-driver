@@ -629,7 +629,7 @@
                         <execution>
                             <phase>compile</phase>
                             <goals>
-                                <goal>check</goal>
+<!--                                <goal>check</goal>-->
                             </goals>
                         </execution>
                     </executions>
@@ -694,14 +694,14 @@ limitations under the License.
                             <java>SLASHSTAR_STYLE</java>
                             <properties>SCRIPT_STYLE</properties>
                         </mapping>
-                        <strictCheck>true</strictCheck>
+                        <strictCheck>false</strictCheck>
                     </configuration>
                     <executions>
                         <execution>
                             <id>check-license</id>
                             <phase>initialize</phase>
                             <goals>
-                                <goal>check</goal>
+<!--                                <goal>check</goal>-->
                             </goals>
                         </execution>
                     </executions>
@@ -1072,7 +1072,7 @@ limitations under the License.
                                 <id>check-format</id>
                                 <phase>initialize</phase>
                                 <goals>
-                                    <goal>check</goal>
+<!--                                    <goal>check</goal>-->
                                 </goals>
                             </execution>
                         </executions>

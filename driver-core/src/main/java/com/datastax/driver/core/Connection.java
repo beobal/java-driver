@@ -31,8 +31,7 @@ import com.datastax.driver.core.exceptions.UnsupportedProtocolVersionException;
 import com.datastax.driver.core.utils.MoreFutures;
 import com.datastax.driver.core.utils.MoreObjects;
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.collect.Lists;
-import com.google.common.collect.MapMaker;
+import com.google.common.collect.*;
 import com.google.common.util.concurrent.AbstractFuture;
 import com.google.common.util.concurrent.AsyncFunction;
 import com.google.common.util.concurrent.FutureCallback;
@@ -66,10 +65,8 @@ import io.netty.util.TimerTask;
 import io.netty.util.concurrent.GlobalEventExecutor;
 import java.lang.ref.WeakReference;
 import java.net.InetSocketAddress;
-import java.util.HashSet;
-import java.util.Iterator;
-import java.util.List;
-import java.util.Queue;
+import java.nio.ByteBuffer;
+import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ConcurrentMap;
@@ -79,6 +76,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -322,6 +320,7 @@ class Connection {
       public ListenableFuture<Void> apply(Message.Response response) throws Exception {
         switch (response.type) {
           case READY:
+            finishProtocolHandshake(protocolVersion);
             return checkClusterName(protocolVersion, initExecutor);
           case ERROR:
             Responses.Error error = (Responses.Error) response;
@@ -469,6 +468,7 @@ class Connection {
           case AUTH_SUCCESS:
             logger.trace("{} Authentication complete", this);
             authenticator.onAuthenticationSuccess(((Responses.AuthSuccess) authResponse).token);
+            finishProtocolHandshake(protocolVersion);
             return checkClusterName(protocolVersion, executor);
           case AUTH_CHALLENGE:
             byte[] responseToServer =
@@ -477,6 +477,7 @@ class Connection {
               // If we generate a null response, then authentication has completed, proceed without
               // sending a further response back to the server.
               logger.trace("{} Authentication complete (No response to server)", this);
+              finishProtocolHandshake(protocolVersion);
               return checkClusterName(protocolVersion, executor);
             } else {
               // Otherwise, send the challenge response back to the server
@@ -510,6 +511,43 @@ class Connection {
         }
       }
     };
+  }
+
+  private void finishProtocolHandshake(ProtocolVersion protocolVersion)
+  {
+    logger.warn("XXX CONFIGURING PIPELINE FOR PROTOCOL {}", protocolVersion);
+    if (protocolVersion.toInt() >= 5)
+    {
+      Map<String, ChannelHandler> handlers = channel.pipeline().toMap();
+      handlers.values().forEach(h -> channel.pipeline().remove(h));
+      BufferPoolAllocator allocator = GlobalBufferPoolAllocator.instance;
+      FrameDecoder decoder = FrameDecoderCrc.create(allocator);
+//      FrameDecoder decoder = FrameDecoderUnprotected.create(allocator);
+//      FrameDecoder decoder = FrameDecoderLZ4.fast(allocator);
+      channel.pipeline().addLast("NewFrameDecoder", decoder);
+      FrameEncoder encoder = FrameEncoderCrc.instance;
+//      FrameEncoder encoder = FrameEncoderUnprotected.instance;
+//      FrameEncoder encoder = FrameEncoderLZ4.fastInstance;
+      channel.pipeline().addLast("NewFrameEncoder", encoder);
+      Message.ProtocolEncoder messageEncoder = (Message.ProtocolEncoder) handlers.get("messageEncoder");
+
+      Flusher flusher = new V5Flusher(channel.eventLoop(), messageEncoder, encoder.allocator());
+      Connection.setFlusher(channel.eventLoop(), flusher);
+      Frame.Decoder cqlFrameDecoder = (Frame.Decoder) handlers.get("frameDecoder");
+      Message.ProtocolDecoder cqlMessageDecoder = (Message.ProtocolDecoder) handlers.get("messageDecoder");
+      MessageProcessor messageProcessor = new MessageProcessor(decoder, cqlFrameDecoder, cqlMessageDecoder, this.dispatcher);
+      channel.pipeline().addAfter("NewFrameDecoder", "Handler", messageProcessor);
+
+//
+//    BiConsumer<Channel, Message> messageConsumer = (channel1, message) -> dispatcher.dispatch(channel1, (Message.Request)message);
+//    CQLMessageHandler handler = new CQLMessageHandler(decoder, channel, cqlFrameDecoder, cqlMessageDecoder, messageConsumer, limits);
+//    channel.pipeline().addAfter("NewFrameDecoder", "Handler", handler);
+//    channel.pipeline().addAfter("Handler", "Dispatcher", dispatcher);
+//
+//      channel.pipeline().addLast("PayloadEncoder",  new PayloadEncoder(encoder.allocator()));
+//      channel.pipeline().addLast(handlers.get("messageEncoder"));
+      channel.pipeline().addLast(handlers.get("exceptionHandler"));
+    }
   }
 
   private void incrementAuthErrorMetric() {
@@ -1064,7 +1102,7 @@ class Connection {
     }
   }
 
-  private static final class Flusher implements Runnable {
+  private static class Flusher implements Runnable {
     final WeakReference<EventLoop> eventLoopRef;
     final Queue<FlushItem> queued = new ConcurrentLinkedQueue<FlushItem>();
     final AtomicBoolean running = new AtomicBoolean(false);
@@ -1087,21 +1125,26 @@ class Connection {
 
       boolean doneWork = false;
       FlushItem flush;
+      int flushCount = 0;
       while (null != (flush = queued.poll())) {
         Channel channel = flush.channel;
         if (channel.isActive()) {
+          Message.Request r = ((Message.Request)flush.request);
+          logger.info("Sending: {}, s={}, pipeline={}", r.type, r.getStreamId(), channel.pipeline());
+
           channels.add(channel);
           channel.write(flush.request).addListener(flush.listener);
           doneWork = true;
+          flushCount++;
         }
       }
 
       // Always flush what we have (don't artificially delay to try to coalesce more messages)
       for (Channel channel : channels) channel.flush();
       channels.clear();
-
       if (doneWork) {
         runsWithNoWork = 0;
+        logger.warn("Flushed {} items", flushCount);
       } else {
         // either reschedule or cancel
         if (++runsWithNoWork > FLUSHER_RUN_WITHOUT_WORK_TIMES) {
@@ -1121,8 +1164,120 @@ class Connection {
     }
   }
 
+  private static final class V5Flusher extends Flusher {
+    final Map<Channel, FrameEncoder.Payload> payloads = new HashMap<>();
+    final Message.ProtocolEncoder messageEncoder;
+    final Multimap<Channel, ChannelFutureListener> listeners = HashMultimap.create();
+    private final FrameEncoder.PayloadAllocator allocator;
+
+    private HashMap<Channel, Integer> messagesPerFrame = new HashMap<>();
+    int runsWithNoWork = 0;
+
+    private V5Flusher(EventLoop eventLoop,
+                      Message.ProtocolEncoder messageEncoder,
+                      FrameEncoder.PayloadAllocator allocator) {
+      super(eventLoop);
+      this.messageEncoder = messageEncoder;
+      this.allocator = allocator;
+    }
+
+    @Override
+    public void run() {
+      boolean doneWork = false;
+      FlushItem flush;
+      int flushCount = 0;
+      while (null != (flush = queued.poll())) {
+        Channel channel = flush.channel;
+        if (channel.isActive()) {
+          Message.Request r = ((Message.Request)flush.request);
+          logger.info("Sending: {}, s={}, pipeline={}", r.type, r.getStreamId(), channel.pipeline());
+
+          FrameEncoder.Payload sending = payloads.get(flush.channel);
+          if (null == sending)
+          {
+            sending = allocator.allocate(true,  PayloadEncoder.LARGE_MESSAGE_THRESHOLD);
+            payloads.put(flush.channel, sending);
+            messagesPerFrame.put(flush.channel, 0);
+          }
+
+          Frame outbound = messageEncoder.encodeMessage(flush.channel.alloc(), (Message.Request)flush.request);
+          flushCount++;
+          if(sending.remaining() < Frame.Header.lengthFor(ProtocolVersion.V5) + outbound.body.readableBytes())
+          {
+            sending.finish();
+            flush.channel.write(sending);
+            sending.release();
+            logger.warn("XXX Packed {} messages into frame", messagesPerFrame.get(flush.channel));
+            sending = allocator.allocate(true, PayloadEncoder.LARGE_MESSAGE_THRESHOLD);
+            payloads.put(flush.channel, sending);
+            messagesPerFrame.put(channel, 0);
+          }
+
+
+          ByteBuffer buf = sending.buffer;
+          buf.put((byte)outbound.header.version.toInt());
+          buf.put((byte) Frame.Header.Flag.serialize(outbound.header.flags));
+          buf.putShort((short)outbound.header.streamId);
+
+          buf.put((byte)outbound.header.opcode);
+          buf.putInt(outbound.body.readableBytes());
+          buf.put(outbound.body.nioBuffer());
+          messagesPerFrame.put(channel, messagesPerFrame.get(channel) + 1);
+          channels.add(channel);
+          listeners.put(flush.channel, flush.listener);
+          doneWork = true;
+        }
+      }
+
+
+      if (doneWork) {
+        runsWithNoWork = 0;
+        logger.warn("XXX Flushed {} items", flushCount);
+        for (Channel channel : payloads.keySet())
+        {
+          FrameEncoder.Payload sending = payloads.get(channel);
+          sending.finish();
+          ChannelFuture future = channel.write(sending);
+          for (ChannelFutureListener listener : listeners.get(channel))
+          {
+            future.addListener(listener);
+          }
+
+          logger.warn("XXX Packed {} messages into frame", messagesPerFrame.get(channel));
+          sending.release();
+          payloads.remove(channel);
+          listeners.removeAll(channel);
+        }
+      } else {
+        // either reschedule or cancel
+        if (++runsWithNoWork > FLUSHER_RUN_WITHOUT_WORK_TIMES) {
+          running.set(false);
+          if (queued.isEmpty() || !running.compareAndSet(false, true)) return;
+        }
+      }
+
+      // Always flush what we have (don't artificially delay to try to coalesce more messages)
+      for (Channel channel : channels) channel.flush();
+      channels.clear();
+      logger.warn("XXX FLUSHED ALL CHANNELS");
+      EventLoop eventLoop = eventLoopRef.get();
+      if (eventLoop != null && !eventLoop.isShuttingDown()) {
+        if (FLUSHER_SCHEDULE_PERIOD_NS > 0) {
+          eventLoop.schedule(this, FLUSHER_SCHEDULE_PERIOD_NS, TimeUnit.NANOSECONDS);
+        } else {
+          eventLoop.execute(this);
+        }
+      }
+    }
+  }
+
   private static final ConcurrentMap<EventLoop, Flusher> flusherLookup =
       new MapMaker().concurrencyLevel(16).weakKeys().makeMap();
+
+  private static void setFlusher(EventLoop loop, Flusher flusher)
+  {
+    flusherLookup.put(loop, flusher);
+  }
 
   private static class FlushItem {
     final Channel channel;
@@ -1196,11 +1351,21 @@ class Connection {
     @Override
     protected void channelRead0(ChannelHandlerContext ctx, Message.Response response)
         throws Exception {
+      dispatch(ctx, response);
+    }
+
+    public void dispatch(ChannelHandlerContext ctx, Message.Response response) {
       int streamId = response.getStreamId();
 
+      if ( response.type == Message.Response.Type.READY)
+      {
+        System.out.println("PIPELINE: " + ctx.channel().pipeline().toString());
+      }
       if (logger.isTraceEnabled())
+      {
         logger.trace(
-            "{}, stream {}, received: {}", Connection.this, streamId, asDebugString(response));
+        "{}, stream {}, received: {}", Connection.this, streamId, asDebugString(response));
+      }
 
       if (streamId < 0) {
         factory.defaultHandler.handle(response);
@@ -1209,6 +1374,9 @@ class Connection {
 
       ResponseHandler handler = pending.remove(streamId);
       streamIdHandler.release(streamId);
+
+      if (logger.isTraceEnabled())
+        logger.trace( "{}, stream {}, handler: {}", Connection.this, streamId, handler);
       if (handler == null) {
         /*
          * During normal operation, we should not receive responses for which we don't have a handler. There is

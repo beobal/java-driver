@@ -208,6 +208,12 @@ class Frame {
         throws Exception {
       if (buffer.readableBytes() < 1) return;
 
+      Object frame = decodeFrame(ctx, buffer);
+      if (frame != null) out.add(frame);
+    }
+
+    public Object decodeFrame(ChannelHandlerContext ctx, ByteBuf buffer) throws Exception
+    {
       // Initialize sub decoder on first message.  No synchronization needed as
       // decode is always called from same thread.
       if (decoder == null) {
@@ -217,8 +223,7 @@ class Frame {
         decoder = new DecoderForStreamIdSize(version, version >= 3 ? 2 : 1);
       }
 
-      Object frame = decoder.decode(ctx, buffer);
-      if (frame != null) out.add(frame);
+      return decoder.decode(ctx, buffer);
     }
 
     static class DecoderForStreamIdSize extends LengthFieldBasedFrameDecoder {
