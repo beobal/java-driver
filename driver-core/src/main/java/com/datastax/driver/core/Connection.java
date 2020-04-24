@@ -17,6 +17,7 @@ package com.datastax.driver.core;
 
 import static com.datastax.driver.core.Message.Response.Type.ERROR;
 import static io.netty.handler.timeout.IdleState.READER_IDLE;
+import static java.lang.Enum.valueOf;
 
 import com.datastax.driver.core.Responses.Result.SetKeyspace;
 import com.datastax.driver.core.exceptions.AuthenticationException;
@@ -41,6 +42,7 @@ import com.google.common.util.concurrent.ListeningExecutorService;
 import com.google.common.util.concurrent.SettableFuture;
 import com.google.common.util.concurrent.Uninterruptibles;
 import io.netty.bootstrap.Bootstrap;
+import io.netty.buffer.ByteBuf;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelFutureListener;
@@ -56,6 +58,7 @@ import io.netty.channel.group.ChannelGroup;
 import io.netty.channel.group.DefaultChannelGroup;
 import io.netty.channel.socket.SocketChannel;
 import io.netty.handler.codec.DecoderException;
+import io.netty.handler.codec.MessageToMessageEncoder;
 import io.netty.handler.ssl.SslHandler;
 import io.netty.handler.timeout.IdleStateEvent;
 import io.netty.handler.timeout.IdleStateHandler;
@@ -76,6 +79,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Consumer;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -320,7 +324,6 @@ class Connection {
       public ListenableFuture<Void> apply(Message.Response response) throws Exception {
         switch (response.type) {
           case READY:
-            finishProtocolHandshake(protocolVersion);
             return checkClusterName(protocolVersion, initExecutor);
           case ERROR:
             Responses.Error error = (Responses.Error) response;
@@ -468,7 +471,6 @@ class Connection {
           case AUTH_SUCCESS:
             logger.trace("{} Authentication complete", this);
             authenticator.onAuthenticationSuccess(((Responses.AuthSuccess) authResponse).token);
-            finishProtocolHandshake(protocolVersion);
             return checkClusterName(protocolVersion, executor);
           case AUTH_CHALLENGE:
             byte[] responseToServer =
@@ -477,7 +479,6 @@ class Connection {
               // If we generate a null response, then authentication has completed, proceed without
               // sending a further response back to the server.
               logger.trace("{} Authentication complete (No response to server)", this);
-              finishProtocolHandshake(protocolVersion);
               return checkClusterName(protocolVersion, executor);
             } else {
               // Otherwise, send the challenge response back to the server
@@ -513,31 +514,27 @@ class Connection {
     };
   }
 
-  private void finishProtocolHandshake(ProtocolVersion protocolVersion)
-  {
-    logger.warn("XXX CONFIGURING PIPELINE FOR PROTOCOL {}", protocolVersion);
-    if (protocolVersion.toInt() >= 5)
-    {
-      Map<String, ChannelHandler> handlers = channel.pipeline().toMap();
-      handlers.values().forEach(h -> channel.pipeline().remove(h));
-      BufferPoolAllocator allocator = GlobalBufferPoolAllocator.instance;
-      FrameDecoder decoder = FrameDecoderCrc.create(allocator);
-//      FrameDecoder decoder = FrameDecoderUnprotected.create(allocator);
-//      FrameDecoder decoder = FrameDecoderLZ4.fast(allocator);
-      channel.pipeline().addLast("NewFrameDecoder", decoder);
-      FrameEncoder encoder = FrameEncoderCrc.instance;
-//      FrameEncoder encoder = FrameEncoderUnprotected.instance;
-//      FrameEncoder encoder = FrameEncoderLZ4.fastInstance;
-      channel.pipeline().addLast("NewFrameEncoder", encoder);
-      Message.ProtocolEncoder messageEncoder = (Message.ProtocolEncoder) handlers.get("messageEncoder");
-
-      Flusher flusher = new V5Flusher(channel.eventLoop(), messageEncoder, encoder.allocator());
-      Connection.setFlusher(channel.eventLoop(), flusher);
-      Frame.Decoder cqlFrameDecoder = (Frame.Decoder) handlers.get("frameDecoder");
-      Message.ProtocolDecoder cqlMessageDecoder = (Message.ProtocolDecoder) handlers.get("messageDecoder");
-      MessageProcessor messageProcessor = new MessageProcessor(decoder, cqlFrameDecoder, cqlMessageDecoder, this.dispatcher);
-      channel.pipeline().addAfter("NewFrameDecoder", "Handler", messageProcessor);
-
+//  private void finishProtocolHandshake(ProtocolVersion protocolVersion)
+//  {
+//    logger.warn("XXX CONFIGURING PIPELINE FOR PROTOCOL {}", protocolVersion);
+//    if (protocolVersion.toInt() >= 5)
+//    {
+//      Map<String, ChannelHandler> handlers = channel.pipeline().toMap();
+//      handlers.values().forEach(h -> channel.pipeline().remove(h));
+//      BufferPoolAllocator allocator = GlobalBufferPoolAllocator.instance;
+//      FrameDecoder decoder = FrameDecoderCrc.create(allocator);
+//      channel.pipeline().addLast("NewFrameDecoder", decoder);
+//      FrameEncoder encoder = FrameEncoderCrc.instance;
+//      channel.pipeline().addLast("NewFrameEncoder", encoder);
+//      Message.ProtocolEncoder messageEncoder = (Message.ProtocolEncoder) handlers.get("messageEncoder");
+//
+//      Flusher flusher = new V5Flusher(channel.eventLoop(), messageEncoder, encoder.allocator());
+//      Connection.setFlusher(channel.eventLoop(), flusher);
+//      Frame.Decoder cqlFrameDecoder = (Frame.Decoder) handlers.get("frameDecoder");
+//      Message.ProtocolDecoder cqlMessageDecoder = (Message.ProtocolDecoder) handlers.get("messageDecoder");
+//      MessageProcessor messageProcessor = new MessageProcessor(decoder, cqlFrameDecoder, cqlMessageDecoder, this.dispatcher);
+//      channel.pipeline().addAfter("NewFrameDecoder", "Handler", messageProcessor);
+//
 //
 //    BiConsumer<Channel, Message> messageConsumer = (channel1, message) -> dispatcher.dispatch(channel1, (Message.Request)message);
 //    CQLMessageHandler handler = new CQLMessageHandler(decoder, channel, cqlFrameDecoder, cqlMessageDecoder, messageConsumer, limits);
@@ -546,9 +543,9 @@ class Connection {
 //
 //      channel.pipeline().addLast("PayloadEncoder",  new PayloadEncoder(encoder.allocator()));
 //      channel.pipeline().addLast(handlers.get("messageEncoder"));
-      channel.pipeline().addLast(handlers.get("exceptionHandler"));
-    }
-  }
+//      channel.pipeline().addLast(handlers.get("exceptionHandler"));
+//    }
+//  }
 
   private void incrementAuthErrorMetric() {
     if (factory.manager.configuration.getMetricsOptions().isEnabled()) {
@@ -1130,7 +1127,7 @@ class Connection {
         Channel channel = flush.channel;
         if (channel.isActive()) {
           Message.Request r = ((Message.Request)flush.request);
-          logger.info("Sending: {}, s={}, pipeline={}", r.type, r.getStreamId(), channel.pipeline());
+//          logger.info("Sending: {}, s={}, pipeline={}", r.type, r.getStreamId(), channel.pipeline());
 
           channels.add(channel);
           channel.write(flush.request).addListener(flush.listener);
@@ -1144,7 +1141,7 @@ class Connection {
       channels.clear();
       if (doneWork) {
         runsWithNoWork = 0;
-        logger.warn("Flushed {} items", flushCount);
+//        logger.warn("Flushed {} items", flushCount);
       } else {
         // either reschedule or cancel
         if (++runsWithNoWork > FLUSHER_RUN_WITHOUT_WORK_TIMES) {
@@ -1190,7 +1187,7 @@ class Connection {
         Channel channel = flush.channel;
         if (channel.isActive()) {
           Message.Request r = ((Message.Request)flush.request);
-          logger.info("Sending: {}, s={}, pipeline={}", r.type, r.getStreamId(), channel.pipeline());
+//          logger.info("Sending: {}, s={}, pipeline={}", r.type, r.getStreamId(), channel.pipeline());
 
           FrameEncoder.Payload sending = payloads.get(flush.channel);
           if (null == sending)
@@ -1207,7 +1204,7 @@ class Connection {
             sending.finish();
             flush.channel.write(sending);
             sending.release();
-            logger.warn("XXX Packed {} messages into frame", messagesPerFrame.get(flush.channel));
+//            logger.info("XXX Packed {} messages into frame", messagesPerFrame.get(flush.channel));
             sending = allocator.allocate(true, PayloadEncoder.LARGE_MESSAGE_THRESHOLD);
             payloads.put(flush.channel, sending);
             messagesPerFrame.put(channel, 0);
@@ -1232,7 +1229,7 @@ class Connection {
 
       if (doneWork) {
         runsWithNoWork = 0;
-        logger.warn("XXX Flushed {} items", flushCount);
+//        logger.info("XXX Flushed {} items", flushCount);
         for (Channel channel : payloads.keySet())
         {
           FrameEncoder.Payload sending = payloads.get(channel);
@@ -1243,7 +1240,7 @@ class Connection {
             future.addListener(listener);
           }
 
-          logger.warn("XXX Packed {} messages into frame", messagesPerFrame.get(channel));
+//          logger.info("XXX Packed {} messages into frame", messagesPerFrame.get(channel));
           sending.release();
           payloads.remove(channel);
           listeners.removeAll(channel);
@@ -1259,7 +1256,6 @@ class Connection {
       // Always flush what we have (don't artificially delay to try to coalesce more messages)
       for (Channel channel : channels) channel.flush();
       channels.clear();
-      logger.warn("XXX FLUSHED ALL CHANNELS");
       EventLoop eventLoop = eventLoopRef.get();
       if (eventLoop != null && !eventLoop.isShuttingDown()) {
         if (FLUSHER_SCHEDULE_PERIOD_NS > 0) {
@@ -1823,25 +1819,96 @@ class Connection {
         pipeline.addLast("outboundTrafficMeter", new OutboundTrafficMeter(metrics.getBytesSent()));
       }
 
-      pipeline.addLast("frameDecoder", new Frame.Decoder());
+      pipeline.addLast("initial", new InitialHandler(protocolVersion, connection.dispatcher, messageDecoder, compressor));
       pipeline.addLast("frameEncoder", frameEncoder);
 
-      if (compressor != null) {
-        pipeline.addLast("frameDecompressor", new Frame.Decompressor(compressor));
-        pipeline.addLast("frameCompressor", new Frame.Compressor(compressor));
-      }
-
-      pipeline.addLast("messageDecoder", messageDecoder);
       pipeline.addLast("messageEncoder", messageEncoderFor(protocolVersion));
-
       pipeline.addLast("idleStateHandler", idleStateHandler);
-
-      pipeline.addLast("dispatcher", connection.dispatcher);
 
       nettyOptions.afterChannelInitialized(channel);
     }
 
-    private Message.ProtocolEncoder messageEncoderFor(ProtocolVersion version) {
+    private static class InitialHandler extends MessageToMessageEncoder<ByteBuf>
+    {
+      final ProtocolVersion version;
+      final Dispatcher dispatcher;
+      final Message.ProtocolDecoder messageDecoder;
+      final FrameCompressor compressor;
+
+      InitialHandler(ProtocolVersion version,
+                     Dispatcher dispatcher,
+                     Message.ProtocolDecoder messageDecoder,
+                     FrameCompressor compressor)
+      {
+        this.version = version;
+        this.dispatcher = dispatcher;
+        this.messageDecoder = messageDecoder;
+        this.compressor = compressor;
+      }
+
+      protected void encode(final ChannelHandlerContext ctx, ByteBuf msg, List<Object> out) throws Exception
+      {
+        logger.info("XXX Sending initial message, configuring pipeline for {}", version);
+
+        if (version.toInt() >= 5)
+        {
+          configureModernPipeline(ctx);
+        }
+        else
+        {
+          configureLegacyPipeline(ctx);
+        }
+        out.add(msg.retain());
+        logger.info("XXX DONE");
+      }
+
+      private void configureModernPipeline(ChannelHandlerContext ctx)
+      {
+        logger.info("XXX Configuring modern pipeline");
+        ChannelPipeline pipeline = ctx.pipeline();
+        pipeline.remove("frameEncoder");
+        pipeline.remove("messageEncoder");
+        BufferPoolAllocator allocator = GlobalBufferPoolAllocator.instance;
+        Channel channel = ctx.channel();
+        channel.config().setOption(ChannelOption.ALLOCATOR, allocator);
+
+        Frame.Decoder cqlFrameDecoder = new Frame.Decoder();
+        Message.ProtocolEncoder messageEncoder = messageEncoderFor(version);
+        FrameDecoder messageFrameDecoder = FrameDecoderCrc.create(allocator);
+        FrameEncoder messageFrameEncoder = FrameEncoderCrc.instance;
+        Flusher flusher = new V5Flusher(channel.eventLoop(), messageEncoder, messageFrameEncoder.allocator());
+        Connection.setFlusher(channel.eventLoop(), flusher);
+        MessageProcessor messageProcessor = new MessageProcessor(messageFrameDecoder,
+                                                                 cqlFrameDecoder,
+                                                                 messageDecoder,
+                                                                 dispatcher);
+
+
+        pipeline.addBefore("idleStateHandler", "messageFrameDecoder", messageFrameDecoder);
+        pipeline.addBefore("idleStateHandler", "messageFrameEncoder", messageFrameEncoder);
+        pipeline.addBefore("idleStateHandler", "messageProcessor", messageProcessor);
+        pipeline.remove(this);
+        logger.info("XXX Configured pipeline for V5 {}", pipeline);
+        logger.info("XXX {}", pipeline);
+      }
+
+      private void configureLegacyPipeline(ChannelHandlerContext ctx)
+      {
+        logger.info("XXX Configuring legacy pipeline");
+        ChannelPipeline pipeline = ctx.pipeline();
+        pipeline.addBefore("frameEncoder", "frameDecoder", new Frame.Decoder());
+        if (compressor != null) {
+          pipeline.addAfter("frameDecoder", "frameDecompressor", new Frame.Decompressor(compressor));
+          pipeline.addAfter("frameEncoder", "frameCompressor", new Frame.Compressor(compressor));
+        }
+        pipeline.addBefore("messageEncoder", "messageDecoder", messageDecoder);
+        pipeline.addAfter("idleStateHandler", "dispatcher", dispatcher);
+        pipeline.remove(this);
+        logger.info("XXX {}", pipeline);
+      }
+    }
+
+    private static Message.ProtocolEncoder messageEncoderFor(ProtocolVersion version) {
       switch (version) {
         case V1:
           return messageEncoderV1;
@@ -1854,7 +1921,7 @@ class Connection {
         case V5:
           return messageEncoderV5;
         default:
-          throw new DriverInternalError("Unsupported protocol version " + protocolVersion);
+          throw new DriverInternalError("Unsupported protocol version " + version);
       }
     }
   }

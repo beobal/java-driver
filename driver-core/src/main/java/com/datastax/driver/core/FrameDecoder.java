@@ -264,7 +264,7 @@ public abstract class FrameDecoder extends ChannelInboundHandlerAdapter
     @Override
     public void channelRead(ChannelHandlerContext ctx, Object msg) throws IOException
     {
-        logger.info("XXX : reading from channel {}", ctx.channel().toString());
+//        logger.info("XXX : reading from channel {}", ctx.channel().toString());
         if (msg instanceof BufferPoolAllocator.Wrapped)
         {
             ByteBuffer buf = ((BufferPoolAllocator.Wrapped) msg).adopt();

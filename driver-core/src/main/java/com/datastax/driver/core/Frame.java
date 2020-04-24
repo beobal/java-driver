@@ -29,6 +29,9 @@ import io.netty.handler.codec.TooLongFrameException;
 import java.util.EnumSet;
 import java.util.List;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 /**
  * A frame for the CQL binary protocol.
  *
@@ -314,17 +317,23 @@ class Frame {
       assert compressor != null;
       this.compressor = compressor;
     }
-
+private static final Logger logger = LoggerFactory.getLogger(Decompressor.class);
     @Override
     protected void decode(ChannelHandlerContext ctx, Frame frame, List<Object> out)
         throws Exception {
+      logger.info("XXX DECOMPRESS {}:{}", Message.Response.Type.fromOpcode(frame.header.opcode), frame.header.flags.contains(Header.Flag.COMPRESSED));
       if (frame.header.flags.contains(Header.Flag.COMPRESSED)) {
         // All decompressors allocate a new buffer for the decompressed data, so this is the last
         // time
         // we have a reference to the compressed body (and therefore a chance to release it).
         ByteBuf compressedBody = frame.body;
-        try {
+        try
+        {
           out.add(compressor.decompress(frame));
+        } catch(Exception e)
+        {
+          logger.error("ARGH", e);
+          throw e;
         } finally {
           compressedBody.release();
         }
@@ -335,7 +344,7 @@ class Frame {
   }
 
   static class Compressor extends MessageToMessageEncoder<Frame> {
-
+private static final Logger logger = LoggerFactory.getLogger(Compressor.class);
     private final FrameCompressor compressor;
 
     Compressor(FrameCompressor compressor) {
@@ -348,12 +357,14 @@ class Frame {
         throws Exception {
       // Never compress STARTUP messages
       if (frame.header.opcode == Message.Request.Type.STARTUP.opcode) {
+        logger.info("XXX NEVER COMPRESS STARTUP");
         out.add(frame);
       } else {
         frame.header.flags.add(Header.Flag.COMPRESSED);
         // See comment in decode()
         ByteBuf uncompressedBody = frame.body;
         try {
+          logger.info("XXX COMPRESS {}:{}", frame.header.opcode, frame.header.flags.contains(Header.Flag.COMPRESSED));
           out.add(compressor.compress(frame));
         } finally {
           uncompressedBody.release();

@@ -83,7 +83,7 @@ public class MessageProcessor extends ChannelInboundHandlerAdapter implements Fr
                 return false;
             count++;
         }
-        logger.warn("XXX PROCESSED FRAME OF {} MESSAGES ({})", count, size);
+//        logger.warn("XXX PROCESSED FRAME OF {} MESSAGES ({})", count, size);
         return true;
     }
 
@@ -144,7 +144,7 @@ public class MessageProcessor extends ChannelInboundHandlerAdapter implements Fr
     private void processCqlFrame(Frame frame)
     {
         Message.Response message = messageDecoder.decodeMessage(ctx, frame);
-        logger.info("Processing {}, s={}, v={}", message.type, frame.header.streamId, frame.header.version);
+//        logger.info("Processing {}, s={}, v={}", message.type, frame.header.streamId, frame.header.version);
         dispatcher.dispatch(ctx, message);
     }
 

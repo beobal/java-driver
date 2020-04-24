@@ -43,8 +43,6 @@ public class ReadCassandraVersion {
   public static void main(String[] args)
   {
 
-    Cluster cluster = null;
-    Session session = null;
     Executor countdown = Executors.newSingleThreadExecutor();
     try
     {
@@ -53,16 +51,17 @@ public class ReadCassandraVersion {
       // This class is thread-safe, you should create a single instance (per target Cassandra
       // cluster), and share
       // it throughout your application.
-      cluster = Cluster.builder()
-                       .addContactPoints(CONTACT_POINTS)
-                       .withPort(PORT)
-//                       .withProtocolVersion(ProtocolVersion.V4)
-                       .allowBetaProtocolVersion()
-                       .build();
+      final Cluster cluster = Cluster.builder()
+                                     .addContactPoints(CONTACT_POINTS)
+                                     .withPort(PORT)
+                                     .withProtocolVersion(ProtocolVersion.V4)
+                                     .withCompression(ProtocolOptions.Compression.LZ4)
+//                                     .allowBetaProtocolVersion()
+                                     .build();
 
       // The Session is what you use to execute queries. Likewise, it is thread-safe and should be
       // reused.
-      session = cluster.connect();
+      final Session session = cluster.connect();
       long start = System.nanoTime();
       // We use execute to send a query to Cassandra. This returns a ResultSet, which is essentially
       // a collection
@@ -74,7 +73,7 @@ public class ReadCassandraVersion {
       String releaseVersion = row.getString("release_version");
       System.out.printf("Cassandra version is: %s%n", releaseVersion);
       System.out.printf("CQL Protocol version is: %s%n", cluster.getConfiguration().getProtocolOptions().getProtocolVersion());
-
+//if (true) System.exit(0);
       session.execute("CREATE KEYSPACE IF NOT EXISTS sanity WITH replication = {'class': 'SimpleStrategy', 'replication_factor': 1}");
       session.execute("CREATE TABLE IF NOT EXISTS sanity.t1 (k int, c int, v int, PRIMARY KEY(k, c))");
       int partitions = 100;
@@ -88,7 +87,7 @@ public class ReadCassandraVersion {
         for (int j = 0; j < rowsPerPartition; j++)
         {
             ResultSetFuture result = session.executeAsync(String.format("INSERT INTO sanity.t1(k, c, v) VALUES (%s, %s, %s)", i, j, j));
-            result.addListener(() -> inflight.decrementAndGet(), countdown);
+            result.addListener(inflight::decrementAndGet, countdown);
             pending.add(result);
             if (inflight.incrementAndGet() >= 1000)
             {
@@ -100,20 +99,62 @@ public class ReadCassandraVersion {
       ListenableFuture<List<ResultSet>> futures = Futures.allAsList(pending);
       futures.addListener(() -> {
           int sleeps = sleepCount.get();
-          System.out.printf("Done with %d inserts (sleeping %d times for %d ms total) %n",
-                            pending.size(),
+          System.out.printf("Done with %d inserts in %d ms (sleeping %d times for %d ms total) %n",
+                            partitions * rowsPerPartition,
+                            TimeUnit.MILLISECONDS.convert(System.nanoTime() - start, TimeUnit.NANOSECONDS),
                             sleeps,
                             sleeps * sleepTime);
+          System.out.println("SANITY SELECT ONE ROW");
+          printRow(session.execute("SELECT * FROM sanity.t1 WHERE k=0").one());
+          System.out.println("SANITY SELECT RANGE LIMIT 10");
+          ResultSet rs1 = session.execute("SELECT * FROM sanity.t1 LIMIT 10");
+          rs1.forEach(ReadCassandraVersion::printRow);
         }, countdown);
-      printRow(session.execute("SELECT * FROM sanity.t1 WHERE k=0").one());
-      rs = session.execute("SELECT * FROM sanity.t1 LIMIT 10");
-      rs.forEach(ReadCassandraVersion::printRow);
 
-      rs = session.execute("SELECT count(*) FROM sanity.t1");
-      System.out.println(rs.one().getLong("count"));
-      System.out.printf("Finished in %d ms",
-                        TimeUnit.MILLISECONDS.convert(System.nanoTime() - start,
-                                                      TimeUnit.NANOSECONDS));
+      inflight.set(0);
+      sleepCount.set(0);
+      pending.clear();
+      long readStart = System.nanoTime();
+      AtomicInteger cnt = new AtomicInteger(0);
+      for (int i = 0; i < partitions; i++)
+      {
+        for (int j = 0; j < rowsPerPartition; j++)
+        {
+          ResultSetFuture result = session.executeAsync("SELECT * FROM sanity.t1 WHERE k = ? AND c = ?", i, j);
+          result.addListener(() -> {
+            inflight.decrementAndGet();
+            if (cnt.incrementAndGet() % 1000 == 0)
+            {
+              System.out.printf("ROW SELECT %d: ", cnt.get());
+              printRow(result.getUninterruptibly().one());
+            }
+          }, countdown);
+          pending.add(result);
+          if (inflight.incrementAndGet() >= 500)
+          {
+            TimeUnit.MILLISECONDS.sleep(sleepTime);
+            sleepCount.incrementAndGet();
+          }
+        }
+      }
+      futures = Futures.allAsList(pending);
+      futures.addListener(() -> {
+          int sleeps = sleepCount.get();
+          System.out.printf("Done with %d row selects in %d ms (sleeping %d times for %d ms total) %n",
+                            partitions * rowsPerPartition,
+                            TimeUnit.MILLISECONDS.convert(System.nanoTime() - readStart, TimeUnit.NANOSECONDS),
+                            sleeps,
+                            sleeps * sleepTime);
+
+          System.out.println("SANITY AGGREGATION QUERY");
+          ResultSet rs2 = session.execute("SELECT count(*) FROM sanity.t1");
+          System.out.println(rs2.one().getLong("count"));
+          System.out.printf("Finished in %d ms", TimeUnit.MILLISECONDS.convert(System.nanoTime() - start, TimeUnit.NANOSECONDS));
+          session.close();
+          cluster.close();
+          System.out.println("DONE");
+        }, countdown);
+
     }
     catch (Exception e)
     {
@@ -128,10 +169,9 @@ public class ReadCassandraVersion {
       // pools...). In a
       // real application, you would typically do this at shutdown (for example, when undeploying
       // your webapp).
-      System.out.println("DONE");
-      if(session != null) session.close();
-      if (cluster != null) cluster.close();
-      System.out.println("CLOSED");
+//      if(session != null) session.close();
+//      if (cluster != null) cluster.close();
+//      System.out.println("CLOSED");
 
     }
     // The try-with-resources block automatically close the session after we’re done with it.
