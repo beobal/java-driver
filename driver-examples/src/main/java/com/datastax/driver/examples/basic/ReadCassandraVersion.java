@@ -54,9 +54,9 @@ public class ReadCassandraVersion {
       final Cluster cluster = Cluster.builder()
                                      .addContactPoints(CONTACT_POINTS)
                                      .withPort(PORT)
-                                     .withProtocolVersion(ProtocolVersion.V4)
-                                     .withCompression(ProtocolOptions.Compression.LZ4)
-//                                     .allowBetaProtocolVersion()
+//                                     .withProtocolVersion(ProtocolVersion.V4)
+//                                     .withCompression(ProtocolOptions.Compression.LZ4)
+                                     .allowBetaProtocolVersion()
                                      .build();
 
       // The Session is what you use to execute queries. Likewise, it is thread-safe and should be
@@ -104,13 +104,15 @@ public class ReadCassandraVersion {
                             TimeUnit.MILLISECONDS.convert(System.nanoTime() - start, TimeUnit.NANOSECONDS),
                             sleeps,
                             sleeps * sleepTime);
-          System.out.println("SANITY SELECT ONE ROW");
+          System.out.println("SELECT ONE ROW");
           printRow(session.execute("SELECT * FROM sanity.t1 WHERE k=0").one());
-          System.out.println("SANITY SELECT RANGE LIMIT 10");
+          System.out.println("SELECT RANGE LIMIT 10");
           ResultSet rs1 = session.execute("SELECT * FROM sanity.t1 LIMIT 10");
           rs1.forEach(ReadCassandraVersion::printRow);
         }, countdown);
 
+
+      System.out.println("EXECUTING PARALLEL SELECTS");
       inflight.set(0);
       sleepCount.set(0);
       pending.clear();
@@ -146,15 +148,33 @@ public class ReadCassandraVersion {
                             sleeps,
                             sleeps * sleepTime);
 
-          System.out.println("SANITY AGGREGATION QUERY");
+          System.out.println("AGGREGATION QUERY");
           ResultSet rs2 = session.execute("SELECT count(*) FROM sanity.t1");
-          System.out.println(rs2.one().getLong("count"));
-          System.out.printf("Finished in %d ms", TimeUnit.MILLISECONDS.convert(System.nanoTime() - start, TimeUnit.NANOSECONDS));
+          System.out.println("AGGREGATION RESULT: " + rs2.one().getLong("count"));
+        }, countdown);
+
+        session.execute("CREATE TABLE IF NOT EXISTS sanity.t2 (k int, c int, v text, PRIMARY KEY(k, c))");
+        StringBuilder builder = new StringBuilder();
+        final int FRAME_SIZE_THRESHOLD = 1024 * 128; // kb
+        for (int i = 0; i < (FRAME_SIZE_THRESHOLD * 2) - 1024 ; i++)
+            builder.append('a');
+        final String s = builder.toString();
+        System.out.println("EXECUTING MULTI-FRAME INSERT");
+        session.execute("INSERT INTO sanity.t2(k, c, v) VALUES (0, 0, ?)", s);
+
+        System.out.println("EXECUTING MULTI-FRAME SELECT");
+        ResultSetFuture result = session.executeAsync("SELECT * FROM sanity.t2 WHERE k = 0 AND c = 0");
+        result.addListener(() -> {
+          Row r1 = result.getUninterruptibly().one();
+          long finish = System.nanoTime();
+          printRow(r1);
+          String val = r1.getString("v");
+          assert val.length() == s.length();
+          System.out.printf("Finished in %d ms%n", TimeUnit.MILLISECONDS.convert(finish - start, TimeUnit.NANOSECONDS));
           session.close();
           cluster.close();
           System.out.println("DONE");
         }, countdown);
-
     }
     catch (Exception e)
     {
@@ -183,6 +203,6 @@ public class ReadCassandraVersion {
   private static void printRow(Row row)
   {
     assert row != null;
-    System.out.printf("(%d, %d, %d)%n", row.getInt("k"), row.getInt("c"), row.getInt("v"));
+    System.out.printf("(%d, %d, %s)%n", row.getInt("k"), row.getInt("c"), row.getObject("v"));
   }
 }

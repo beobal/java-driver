@@ -50,7 +50,8 @@ class LZ4Compressor extends FrameCompressor {
   private final net.jpountz.lz4.LZ4FastDecompressor decompressor;
 
   private LZ4Compressor() {
-    final LZ4Factory lz4Factory = LZ4Factory.fastestInstance();
+//    final LZ4Factory lz4Factory = LZ4Factory.fastestInstance();
+    final LZ4Factory lz4Factory = LZ4Factory.safeInstance();
     logger.info("Using {}", lz4Factory.toString());
     compressor = lz4Factory.fastCompressor();
     decompressor = lz4Factory.fastDecompressor();
@@ -128,17 +129,31 @@ class LZ4Compressor extends FrameCompressor {
     ByteBuf input = frame.body;
 
     // TODO: JAVA-1306: Use the same API calls for direct and heap buffers when LZ4 updated.
-    ByteBuf frameBody = input.isDirect() ? decompressDirect(input) : decompressHeap(input);
+    ByteBuf frameBody = input.isDirect() ? decompressDirect(input, frame.header.opcode == 8) : decompressHeap(input);
     return frame.with(frameBody);
   }
 
-  private ByteBuf decompressDirect(ByteBuf input) throws IOException {
+  private ByteBuf decompressDirect(ByteBuf input, boolean dump) throws IOException {
     // If the input is direct we will allocate a direct output buffer as well as this will allow us
     // to use
     // LZ4Compressor.decompress and so eliminate memory copies.
     int readable = input.readableBytes();
     int uncompressedLength = input.readInt();
     ByteBuffer in = inputNioBuffer(input);
+    if (dump)
+    {
+      int l = in.remaining();
+      StringBuffer b = new StringBuffer("[");
+      for (int i = 0; i < l; i++)
+      {
+        b.append(in.get(i));
+        b.append(", ");
+      }
+      logger.info("XXX : {}]", b.substring(0, b.lastIndexOf(",")));
+//      if (true)
+//        throw new RuntimeException("XXXX");
+    }
+
     // Increase reader index.
     input.readerIndex(input.writerIndex());
     ByteBuf output = input.alloc().directBuffer(uncompressedLength);

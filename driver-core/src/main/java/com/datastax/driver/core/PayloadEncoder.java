@@ -11,7 +11,7 @@ import io.netty.channel.ChannelPromise;
  */
 public final class PayloadEncoder extends ChannelOutboundHandlerAdapter
 {
-    public static final int LARGE_MESSAGE_THRESHOLD = 1024 * 64;
+    public static final int MAX_FRAME_SIZE = 1 << 17;
     private final FrameEncoder.PayloadAllocator allocator;
     private FrameEncoder.Payload sending;
     public PayloadEncoder(FrameEncoder.PayloadAllocator allocator)
@@ -25,7 +25,7 @@ public final class PayloadEncoder extends ChannelOutboundHandlerAdapter
         // loop until a single frame is filled or we run out of messages
         // then write/flush
         if (null == sending)
-            sending = allocator.allocate(true, LARGE_MESSAGE_THRESHOLD);
+            sending = allocator.allocate(true, MAX_FRAME_SIZE);
 
         Frame outbound = (Frame)msg;
         ProtocolVersion protocolVersion = outbound.header.version;
@@ -35,7 +35,7 @@ public final class PayloadEncoder extends ChannelOutboundHandlerAdapter
             sending.finish();
             ctx.write(sending);
             sending.release();
-            sending = allocator.allocate(true, LARGE_MESSAGE_THRESHOLD);
+            sending = allocator.allocate(true, MAX_FRAME_SIZE);
         }
 
         ByteBuffer buf = sending.buffer;

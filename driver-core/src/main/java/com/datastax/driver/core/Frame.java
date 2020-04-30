@@ -136,14 +136,14 @@ class Frame {
     return new Frame(header, body);
   }
 
-  static class Header {
+  public static class Header {
 
     final ProtocolVersion version;
     final EnumSet<Flag> flags;
     final int streamId;
     final int opcode;
 
-    private Header(ProtocolVersion version, int flags, int streamId, int opcode) {
+    public Header(ProtocolVersion version, int flags, int streamId, int opcode) {
       this(version, Flag.deserialize(flags), streamId, opcode);
     }
 
@@ -278,7 +278,14 @@ class Frame {
 
     @Override
     protected void encode(ChannelHandlerContext ctx, Frame frame, List<Object> out)
-        throws Exception {
+        throws Exception
+    {
+      out.add(encodeHeader(ctx, frame));
+      out.add(frame.body);
+    }
+
+    ByteBuf encodeHeader(ChannelHandlerContext ctx, Frame frame)
+    {
       ProtocolVersion protocolVersion = frame.header.version;
       ByteBuf header = ctx.alloc().ioBuffer(Frame.Header.lengthFor(protocolVersion));
       // We don't bother with the direction, we only send requests.
@@ -287,9 +294,7 @@ class Frame {
       writeStreamId(frame.header.streamId, header, protocolVersion);
       header.writeByte(frame.header.opcode);
       header.writeInt(frame.body.readableBytes());
-
-      out.add(header);
-      out.add(frame.body);
+      return header;
     }
 
     private void writeStreamId(int streamId, ByteBuf header, ProtocolVersion protocolVersion) {
