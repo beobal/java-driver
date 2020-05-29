@@ -55,6 +55,7 @@ class BytesToSegmentDecoder extends LengthFieldBasedFrameDecoder {
     ByteBuf payloadAndCrc = (ByteBuf) super.decode(ctx, in);
     assert header != null;
     if (payloadAndCrc == null) {
+      header = null;
       return null;
     } else {
       Segment segment = segmentCodec.decode(header, payloadAndCrc);
