@@ -30,10 +30,11 @@
     <!-- adjust the driver's log verbosity; see
     http://datastax.github.io/java-driver/manual/logging/
     for more information -->
-    <logger name="com.datastax.driver.core" level="WARN"/>
+    <logger name="com.datastax.driver.core" level="OFF"/>
+    <logger name="com.google.common.util.concurrent" level="OFF"/>
 
     <root level="INFO">
-        <appender-ref ref="STDOUT"/>
+<!--        <appender-ref ref="STDOUT"/>-->
     </root>
 
 </configuration>
