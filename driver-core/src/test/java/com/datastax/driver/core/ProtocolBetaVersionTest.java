@@ -16,7 +16,7 @@
 package com.datastax.driver.core;
 
 import static com.datastax.driver.core.ProtocolVersion.V4;
-import static com.datastax.driver.core.ProtocolVersion.V5;
+import static com.datastax.driver.core.ProtocolVersion.V6;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.fail;
 
@@ -75,7 +75,7 @@ public class ProtocolBetaVersionTest extends CCMTestsSupport {
 
   /**
    * Verifies that the driver CANNOT connect to 3.10 with the following combination of options:
-   * Version V5 Flag UNSET
+   * Version V6 Flag UNSET
    *
    * @jira_ticket JAVA-1248
    */
@@ -86,7 +86,7 @@ public class ProtocolBetaVersionTest extends CCMTestsSupport {
       Cluster.builder()
           .addContactPoints(getContactPoints())
           .withPort(ccm().getBinaryPort())
-          .withProtocolVersion(V5)
+          .withProtocolVersion(V6)
           .build();
       fail("Expected IllegalArgumentException");
     } catch (IllegalArgumentException e) {
@@ -114,7 +114,7 @@ public class ProtocolBetaVersionTest extends CCMTestsSupport {
             .allowBetaProtocolVersion()
             .build();
     cluster.connect();
-    assertThat(cluster.getConfiguration().getProtocolOptions().getProtocolVersion()).isEqualTo(V5);
+    assertThat(cluster.getConfiguration().getProtocolOptions().getProtocolVersion()).isEqualTo(V6);
   }
 
   /**

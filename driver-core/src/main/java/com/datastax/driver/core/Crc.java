@@ -115,7 +115,7 @@ class Crc {
           "It looks like you are running Java 7 or below. "
               + "CRC checks (used in protocol {} and above) will require a memory copy, which can "
               + "negatively impact performance. Consider using a more modern VM.",
-          ProtocolVersion.V5,
+          ProtocolVersion.V6,
           e);
       return new Java6CrcUpdater();
     }

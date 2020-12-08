@@ -394,6 +394,7 @@ class Connection {
               case V3:
               case V4:
               case V5:
+              case V6:
                 return authenticateV2(authenticator, protocolVersion, initExecutor);
               default:
                 throw defunct(protocolVersion.unsupported());
@@ -1659,6 +1660,8 @@ class Connection {
         new Message.ProtocolEncoder(ProtocolVersion.V4);
     private static final Message.ProtocolEncoder messageEncoderV5 =
         new Message.ProtocolEncoder(ProtocolVersion.V5);
+    private static final Message.ProtocolEncoder messageEncoderV6 =
+        new Message.ProtocolEncoder(ProtocolVersion.V6);
     private static final Frame.Encoder frameEncoder = new Frame.Encoder();
 
     private final ProtocolVersion protocolVersion;
@@ -1726,10 +1729,10 @@ class Connection {
       pipeline.addLast("frameEncoder", frameEncoder);
 
       if (compressor != null
-          // Frame-level compression is only done in legacy protocol versions. In V5 and above, it
+          // Frame-level compression is only done in legacy protocol versions. In V6 and above, it
           // happens at a higher level ("segment" that groups multiple frames), so never install
           // those handlers.
-          && protocolVersion.compareTo(ProtocolVersion.V5) < 0) {
+          && protocolVersion.compareTo(ProtocolVersion.V6) < 0) {
         pipeline.addLast("frameDecompressor", new Frame.Decompressor(compressor));
         pipeline.addLast("frameCompressor", new Frame.Compressor(compressor));
       }
@@ -1756,6 +1759,8 @@ class Connection {
           return messageEncoderV4;
         case V5:
           return messageEncoderV5;
+        case V6:
+          return messageEncoderV6;
         default:
           throw new DriverInternalError("Unsupported protocol version " + protocolVersion);
       }
@@ -1763,7 +1768,7 @@ class Connection {
   }
 
   /**
-   * Rearranges the pipeline to deal with the new framing structure in protocol v5 and above. This
+   * Rearranges the pipeline to deal with the new framing structure in protocol v6 and above. This
    * has to be done manually, because it only happens once we've confirmed that the server supports
    * v5.
    */
