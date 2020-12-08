@@ -352,8 +352,8 @@ class Connection {
       @Override
       public ListenableFuture<Void> apply(Message.Response response) throws Exception {
 
-        if (protocolVersion.compareTo(ProtocolVersion.V5) >= 0 && response.type != ERROR) {
-          switchToV5Framing();
+        if (protocolVersion.compareTo(ProtocolVersion.V6) >= 0 && response.type != ERROR) {
+          switchToV6Framing();
         }
 
         switch (response.type) {
@@ -1770,10 +1770,10 @@ class Connection {
   /**
    * Rearranges the pipeline to deal with the new framing structure in protocol v6 and above. This
    * has to be done manually, because it only happens once we've confirmed that the server supports
-   * v5.
+   * v6.
    */
-  void switchToV5Framing() {
-    assert factory.protocolVersion.compareTo(ProtocolVersion.V5) >= 0;
+  void switchToV6Framing() {
+    assert factory.protocolVersion.compareTo(ProtocolVersion.V6) >= 0;
 
     // We want to do this on the event loop, to make sure it doesn't race with incoming requests
     assert channel.eventLoop().inEventLoop();
